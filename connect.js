@@ -1,6 +1,5 @@
-import mysql from "mysql2/promise";   // <-- use promise version (optional but nicer)
+import mysql from "mysql2/promise";
 import dotenv from "dotenv";
-
 dotenv.config();
 
 export const db = mysql.createPool({
