@@ -1,9 +1,10 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
 import path from "path";
 import { fileURLToPath } from "url";
-import multer from "multer";
 
 import authRoutes from "./routes/auth.js";
 import commentRoutes from "./routes/comments.js";
@@ -18,7 +19,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// CORS: Allow all origins (mobile + web)
+// CORS
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Credentials", true);
   next();
@@ -28,22 +29,37 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Serve uploads
-const uploadsPath = path.join(__dirname, "uploads", "posts");
-app.use("/uploads", express.static(uploadsPath));
-
-// Multer: Save inside API
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsPath),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
+// Cloudinary Config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
-const upload = multer({ storage });
 
-// Upload endpoint
-app.post("/api/upload", upload.single("file"), (req, res) => {
+// Temp storage for multer
+const upload = multer({ dest: "temp_uploads/" });
+
+// UPLOAD ENDPOINT: Cloudinary
+app.post("/api/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
-  const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
-  res.json({ filename: req.file.filename, url: fileUrl });
+
+  try {
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: "haifriends",
+      resource_type: "image",
+    });
+
+    // Delete temp file
+    import("fs").then(fs => fs.unlinkSync(req.file.path));
+
+    res.json({
+      url: result.secure_url,
+      filename: result.public_id.split("/").pop(),
+    });
+  } catch (err) {
+    console.error("Cloudinary upload failed:", err);
+    res.status(500).json({ error: "Upload failed" });
+  }
 });
 
 // Routes
@@ -58,8 +74,7 @@ app.use("/api/stories", storiesRoutes);
 // 404
 app.use((req, res) => res.status(404).json({ error: "Not found" }));
 
-// PORT
 const PORT = process.env.PORT || 8800;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`API running on http://0.0.0.0:${PORT}`);
+  console.log(`API running on port ${PORT}`);
 });
